@@ -78,11 +78,11 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "Comments", "FIR + FFT version"
-            VALUE "CompanyName", "Unknown"
+            VALUE "CompanyName", "Rat and Catcher Tech."
             VALUE "FileDescription", "MS Windows only command line PCM wav -> cwave converter"
             VALUE "FileVersion", "1.1.2.1"
             VALUE "InternalName", "cw utility"
-            VALUE "LegalCopyright", "Copyright (C) 2010-2016 Unknown software, GNU GPL"
+            VALUE "LegalCopyright", "Copyright (C) 2010-2016 Rat and Catcher Tech., GNU GPL"
             VALUE "OriginalFilename", "cw.exe"
             VALUE "ProductName", "cw Application"
             VALUE "ProductVersion", "1.1.2.1"
