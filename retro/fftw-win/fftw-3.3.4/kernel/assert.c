@@ -31,7 +31,7 @@ void X(assertion_failed)(const char *s, int line, const char *file)
      if(*badptr__)
       exit(EXIT_FAILURE);	/* unreachable */
 #endif 
-/* -added by Unknown Software */
+/* -added by Rat and Catcher Tech. */
 
      fflush(stdout);
      fprintf(stderr, "fftw: %s:%d: assertion failed: %s\n", file, line, s);
