@@ -61,8 +61,8 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,1,2,1
- PRODUCTVERSION 1,1,2,1
+ FILEVERSION 1,1,4,1
+ PRODUCTVERSION 1,1,4,1
  FILEFLAGSMASK 0x17L
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -80,12 +80,12 @@ BEGIN
             VALUE "Comments", "FIR + FFT version"
             VALUE "CompanyName", "Rat and Catcher Tech."
             VALUE "FileDescription", "MS Windows only command line PCM wav -> cwave converter"
-            VALUE "FileVersion", "1.1.2.1"
+            VALUE "FileVersion", "1.1.4.1"
             VALUE "InternalName", "cw utility"
-            VALUE "LegalCopyright", "Copyright (C) 2010-2016 Rat and Catcher Tech., GNU GPL"
+            VALUE "LegalCopyright", "Copyright (C) 2010-2024 Rat and Catcher Tech., GNU GPL"
             VALUE "OriginalFilename", "cw.exe"
             VALUE "ProductName", "cw Application"
-            VALUE "ProductVersion", "1.1.2.1"
+            VALUE "ProductVersion", "1.1.4.1"
         END
     END
     BLOCK "VarFileInfo"

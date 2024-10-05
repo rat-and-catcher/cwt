@@ -61,6 +61,8 @@
  * Some project fixes; FFTW3.3.4 added; -q; -r21; FFTW version info
  * Version V1.1.3 16-oct-2017
  * minor fixes in comments/messages
+ * Version V1.1.4 05-0ct-2024
+ * Fix some misudersood in NULL return value of FFTW planners
  */
 
 #ifndef _cw_h_
@@ -92,7 +94,7 @@
 #include "cwave.h"
 
 // version
-#define VERSION         ("V1.1.3")      /* program version */
+#define VERSION         ("V1.1.4")      /* program version */
 
 #if defined(_WIN64)                     /* platform name */
 #define PLATFORM        ("x64")

@@ -34,9 +34,12 @@ static void ProcessSingleChFFT(fftw_complex *data,
 /* make spectrum processing for one channel
 */
 static void processSpectrum(fftw_complex *data);
-/* check a plan for existence
+/* make forward r2c FFTW plan
 */
-static void chkplan(const fftw_plan plan);
+fftw_plan myFFTW_fw_r2c_plan(unsigned n, fftw_complex *data, unsigned flags);
+/* make backward c2c FFTW plan
+*/
+fftw_plan myFFTW_bw_c2c_plan(unsigned n, fftw_complex *data, unsigned flags);
 /* execute DFT with exception check (for modified FFTW only!)
 */
 void myFFTWexecute(const fftw_plan plan);
@@ -102,8 +105,8 @@ void ProcessFFT(void)
  if(NULL == dataL || NULL == dataR)
   error("Not enoght memory for FFTW buffers");
 
- chkplan(pL = fftw_plan_dft_r2c_1d(app.nsFFT, (double *)dataL, dataL, plflags));
- chkplan(pR = fftw_plan_dft_r2c_1d(app.nsFFT, (double *)dataR, dataR, plflags));
+ pL = myFFTW_fw_r2c_plan(app.nsFFT, dataL, plflags);
+ pR = myFFTW_fw_r2c_plan(app.nsFFT, dataR, plflags);
  printPlanStat("Forward", pL);
 
 // prepare real data
@@ -139,8 +142,8 @@ void ProcessFFT(void)
  if(app.isVerbose)
   printf("-- Creating Backward FFTW plans\n");
 
- chkplan(pL = fftw_plan_dft_1d(app.nsFFT, dataL, dataL, FFTW_BACKWARD, plflags));
- chkplan(pR = fftw_plan_dft_1d(app.nsFFT, dataR, dataR, FFTW_BACKWARD, plflags));
+ pL = myFFTW_bw_c2c_plan(app.nsFFT, dataL, plflags);
+ pR = myFFTW_bw_c2c_plan(app.nsFFT, dataR, plflags);
  printPlanStat("Backward", pL);
 
 // make backward FFT's
@@ -268,7 +271,8 @@ static void ProcessSingleChFFT(fftw_complex *data,
  // FFTW direct plan
  if(app.isVerbose)
   printf("-- Creating Forward FFTW plan for the %s channel\n", nmCh);
- chkplan(p = fftw_plan_dft_r2c_1d(app.nsFFT, (double *)data, data, plflags));
+
+ p = myFFTW_fw_r2c_plan(app.nsFFT, data, plflags);
  printPlanStat("Forward", p);
 
  // make forward FFT's
@@ -286,7 +290,7 @@ static void ProcessSingleChFFT(fftw_complex *data,
  if(app.isVerbose)
   printf("-- Creating Backward FFTW plan for the %s channel\n", nmCh);
 
- chkplan(p = fftw_plan_dft_1d(app.nsFFT, data, data, FFTW_BACKWARD, plflags));
+ p = myFFTW_bw_c2c_plan(app.nsFFT, data, plflags);
  printPlanStat("Backward", p);
 
  // make backward FFT's
@@ -336,12 +340,52 @@ static void processSpectrum(fftw_complex *data)
  }
 }
 
-/* check a plan for existence
+/* make forward r2c FFTW plan
 */
-static void chkplan(const fftw_plan plan)
+fftw_plan myFFTW_fw_r2c_plan(unsigned n, fftw_complex *data, unsigned flags)
 {
- if(NULL == plan)
-  error("Not enough memory for FFTW plan creating");
+ fftw_plan res = NULL;
+ int isFail = 0;
+
+ __try
+ {
+  res = fftw_plan_dft_r2c_1d(n, (double *)data, data, flags);
+ }
+ __except(EXCEPTION_EXECUTE_HANDLER)
+ {
+  isFail = 1;
+ }
+
+ if(isFail)
+  error("Sorry, out of memory during execute FFTW R2C planner; try dif. N points");
+ if(NULL == res)
+  error("Something wrong during FFTW forward plan creating");
+
+ return res;
+}
+
+/* make backward c2c FFTW plan
+*/
+fftw_plan myFFTW_bw_c2c_plan(unsigned n, fftw_complex *data, unsigned flags)
+{
+ fftw_plan res = NULL;
+ int isFail = 0;
+
+ __try
+ {
+  res = fftw_plan_dft_1d(n, data, data, FFTW_BACKWARD, flags);
+ }
+ __except(EXCEPTION_EXECUTE_HANDLER)
+ {
+  isFail = 1;
+ }
+
+ if(isFail)
+  error("Sorry, out of memory during execute FFTW C2C planner; try dif. N points");
+ if(NULL == res)
+  error("Something wrong during FFTW backward plan creating");
+
+ return res;
 }
 
 /* execute DFT with exception check (for modified FFTW only!)
