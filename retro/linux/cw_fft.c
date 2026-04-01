@@ -27,7 +27,7 @@
 /* single channel processing
 */
 static void ProcessSingleChFFT(fftw_complex *data,
-	unsigned plflags, const char *nmCh);
+        unsigned plflags, const char *nmCh);
 /* make spectrum processing for one channel
 */
 static void processSpectrum(fftw_complex *data);
@@ -49,7 +49,7 @@ void CalcFFTpass(void)
  {
   // (NOT n_samples) nsFFT =::= 2*pi =::= Fs
   double fres = (double)app.nsFFT /*.hcw.n_samples*/ /
-	(double)app.hcw.sample_rate;
+        (double)app.hcw.sample_rate;
 
   if(app.lo_band >= (double)app.hcw.sample_rate / 2.0)
   {
@@ -70,8 +70,8 @@ void CalcFFTpass(void)
    app.lo_rem = (unsigned)(fres * app.lo_band /* + 0.5 */);
    app.hi_rem = (unsigned)(fres * app.hi_band /* + 0.5 */);
    printf("-- FFT pass filter [%.3f..%.3f] Hz\n",
-	app.lo_band >= 0.0? (double)app.lo_rem / fres : 0.0,
-	app.hi_band >  0.0? (double)app.hi_rem / fres : (double)app.hcw.sample_rate / 2.0);
+        app.lo_band >= 0.0? (double)app.lo_rem / fres : 0.0,
+        app.hi_band >  0.0? (double)app.hi_rem / fres : (double)app.hcw.sample_rate / 2.0);
   }
  }
 }
@@ -85,11 +85,11 @@ void ProcessFFT(void)
  unsigned i;
  unsigned plflags = FFTW_ESTIMATE;
 
- if(sizeof(char *) <= 4 &&			// limit for 2GB virtual memory
-	app.hcw.n_samples > 50000000)		// for 32-bit system only
+ if(sizeof(char *) <= 4 &&                      // limit for 2GB virtual memory
+        app.hcw.n_samples > 50000000)           // for 32-bit system only
   error("Input too long for FFT processing @ 32- bits system");
 
- if(app.isFFTnoSIMD)				// silly / stupid
+ if(app.isFFTnoSIMD)                            // silly / stupid
   plflags |= (FFTW_UNALIGNED | FFTW_NO_SIMD);
 
 // FFTW direct plans
@@ -107,14 +107,15 @@ void ProcessFFT(void)
 // prepare real data
  for(i = 0; i < app.hcw.n_samples; ++i)
  {
-  readWavSample(app.fpif, &((double *)dataL)[i], &((double *)dataR)[i]);
+  readWavSample(app.fpif, app.byteps, &((double *)dataL)[i], &((double *)dataR)[i]);
   ((double *)dataL)[i] *= app.gain_mul;
   ((double *)dataR)[i] *= app.gain_mul;
  }
  if(app.hcw.n_samples < app.nsFFT)
  {
-  ((double *)dataL)[app.hcw.n_samples] = 0.0;
-  ((double *)dataR)[app.hcw.n_samples] = 0.0;
+  // it seems more safe to count allignment sample equal the last sample of the track
+  ((double *)dataL)[app.hcw.n_samples] = ((double *)dataL)[app.hcw.n_samples - 1];
+  ((double *)dataR)[app.hcw.n_samples] = ((double *)dataR)[app.hcw.n_samples - 1];
  }
 
 // make forward FFT's
@@ -157,8 +158,8 @@ void ProcessFFT(void)
  for(i = 0; i < app.hcw.n_samples; ++i)
  {
   writeComplex(app.fpof, dataL[i][0], dataL[i][1],
-	dataR[i][0], dataR[i][1], &app.hcw,
-	&app.l_clips, &app.r_clips, &app.tcrc);
+        dataR[i][0], dataR[i][1], &app.hcw,
+        &app.l_clips, &app.r_clips, &app.tcrc);
  }
 
  fftw_free(dataR);
@@ -178,12 +179,12 @@ void ProcessFFT_Safe(void)
  char *nmt;
  unsigned plflags = FFTW_ESTIMATE;
 
- if(sizeof(char *) < 8 &&			// limit for 2GB virtual memory
-	app.hcw.n_samples > 65000000)		// for 32-bit system only
+ if(sizeof(char *) < 8 &&                       // limit for 2GB virtual memory
+        app.hcw.n_samples > 65000000)           // for 32-bit system only
   error("Input too long for FFT processing");
 
  // prepare for processing
- if(app.isFFTnoSIMD)				// silly and stupid
+ if(app.isFFTnoSIMD)                            // silly and stupid
   plflags |= (FFTW_UNALIGNED | FFTW_NO_SIMD);
 
  beginWavData = cftell(app.fpif);
@@ -196,11 +197,13 @@ void ProcessFFT_Safe(void)
  // prepare real data -- left channel
  for(i = 0; i < app.hcw.n_samples; ++i)
  {
-  readWavSample(app.fpif, &((double *)data)[i], &dummy);
+  readWavSample(app.fpif, app.byteps, &((double *)data)[i], &dummy);
   ((double *)data)[i] *= app.gain_mul;
  }
+
+ // it seems more safe to count allignment sample equal the last sample of the track
  if(app.hcw.n_samples < app.nsFFT)
-  ((double *)data)[app.hcw.n_samples] = 0.0;
+  ((double *)data)[app.hcw.n_samples] = ((double *)data)[app.hcw.n_samples - 1];
 
  // process left channel
  ProcessSingleChFFT(data, plflags, "Left");
@@ -213,8 +216,9 @@ void ProcessFFT_Safe(void)
  if(app.isVerbose)
   printf("-- Saving temporary data for the Left channel\n");
 
- nmt = ctempfile();
+ nmt = ctempfile(app.nameof);
  fpt = cfopen(nmt, "w+", "temporary data");
+
  // here we can't use singe fwrite -- some C-runtimes `fwrite` hang up
  // at files >= 4 GB
  for(i = 0; i < app.hcw.n_samples; ++i)
@@ -228,11 +232,13 @@ void ProcessFFT_Safe(void)
  cfseek(app.fpif, beginWavData);
  for(i = 0; i < app.hcw.n_samples; ++i)
  {
-  readWavSample(app.fpif, &dummy, &((double *)data)[i]);
- ((double *)data)[i] *= app.gain_mul;
+  readWavSample(app.fpif, app.byteps, &dummy, &((double *)data)[i]);
+  ((double *)data)[i] *= app.gain_mul;
  }
+
+ // it seems more safe to count allignment sample equal the last sample of the track
  if(app.hcw.n_samples < app.nsFFT)
-  ((double *)data)[app.hcw.n_samples] = 0.0;
+  ((double *)data)[app.hcw.n_samples] = ((double *)data)[app.hcw.n_samples - 1];
 
  // process right channel
  ProcessSingleChFFT(data, plflags, "Right");
@@ -246,8 +252,8 @@ void ProcessFFT_Safe(void)
   if(fread(dl, sizeof(fftw_complex), 1, fpt) != 1)
    error("Read error for temporary data");
   writeComplex(app.fpof, dl[0], dl[1],
-	data[i][0], data[i][1], &app.hcw,
-	&app.l_clips, &app.r_clips, &app.tcrc);
+        data[i][0], data[i][1], &app.hcw,
+        &app.l_clips, &app.r_clips, &app.tcrc);
  }
 
  fclose(fpt);
@@ -259,7 +265,7 @@ void ProcessFFT_Safe(void)
 /* single channel processing
 */
 static void ProcessSingleChFFT(fftw_complex *data,
-	unsigned plflags, const char *nmCh)
+        unsigned plflags, const char *nmCh)
 {
  fftw_plan p;
 
@@ -314,7 +320,7 @@ static void processSpectrum(fftw_complex *data)
  data[0][0] /= (double)(app.nsFFT);
  data[0][1] /= (double)(app.nsFFT);
  // rest of negative frequencies
- if((app.nsFFT & 1) == 0)			// mid == n (!!)
+ if((app.nsFFT & 1) == 0)                       // mid == n (!!)
   data[mid][0] = data[mid][1] = 0.0;
  // here we have "normal" spectrum to make complex/analitic signal
  // ..filtering..
@@ -373,14 +379,14 @@ static void printPlanStat(const char *plName, const fftw_plan plan)
  if(app.isFFTstat)
  {
   printf("-- %s FFT[%u]: +:%.0f, *:%.0f, *+:%.0f\n",
-	plName, app.nsFFT, n_adds, n_muls, n_fmas);
+        plName, app.nsFFT, n_adds, n_muls, n_fmas);
  }
  if(app.isPlanOut)
  {
   if(!app.isFFTstat)
   {
    printf("-- %s Plan[%u]: +:%.0f, *:%.0f, *+:%.0f\n",
-	plName, app.nsFFT, n_adds, n_muls, n_fmas);
+        plName, app.nsFFT, n_adds, n_muls, n_fmas);
   }
   fftw_print_plan(plan);
   printf("\n");

@@ -6,7 +6,7 @@
 
 PROGRAM     = cwt
 
-# installation prefix of FFTW
+# installation prefix of FFTW (our custom static FFTW3.3.4 build)
 FFTW_PREFIX = $(HOME)/opt
 
 CC          = gcc

@@ -20,16 +20,26 @@
 
 #include "cwt.h"
 
-/* print an error message and terminate (no cleanup)
+/* print an error message and terminate (no cleanup); fmt[0] == '.' is special case
 */
 void error(const char *fmt, ...)
 {
  va_list ap;
+ int isUse = 0;
 
  va_start(ap, fmt);
- // plain command line
+ if('.' == *fmt)
+ {
+  ++fmt;
+  isUse = 1;
+ }
+
  vfprintf(stderr, fmt, ap);
  fprintf(stderr, "\n");
+
+ if(isUse)
+  fprintf(stderr, "Use cwt -h for help\n");
+
  exit(1);
 }
 
@@ -79,8 +89,11 @@ void cfseek(FILE *fp, long pos)
   error("fseek() can't reach the requested pos (%ld != %ld)", cpos, pos);
 }
 
-/* create temporary file name (must be free())
+/* create temporary file name (should be free())
 */
+
+#if 0
+
 char *ctempfile(void)
 {
  char *t = NULL, *res, uname[80];
@@ -103,29 +116,72 @@ char *ctempfile(void)
  res = (char *)cmalloc(l + 80, "temp file name");
  strcpy(res, t);
 
- t = strchr(res, ';');		// Windows separator
+ t = strchr(res, ';');          // Windows separator
  if(NULL != t)
  {
   *t = '\0';
   l = strlen(res);
  }
 
- t = strchr(res, ':');		// U*X separator
+ t = strchr(res, ':');          // U*X separator
  if(NULL != t)
  {
   *t = '\0';
   l = strlen(res);
  }
 
- if(l)				// keep in mind Windows backslash's
+ if(l)                          // keep in mind Windows backslash's
  {
   if('\\' == res[l - 1] || '/' == res[l - 1])
    res[l - 1] = '\0';
  }
- sprintf(uname, "\\cWt-%016llX-%08X.tmp", (unsigned long long)getpid(), nn++);
+ sprintf(uname, "cWt-%016llX-%08X.tmp", (unsigned long long)getpid(), nn++);
  strcat(res, uname);
  return res;
 }
+#else
+
+// temp file will be created alongside *afile
+char *ctempfile(const char *afile)
+{
+// make a filename with the same path as argument
+// e.g. in the same folder as output file --
+// -- it can be slowly on mechanical HDD but looks
+// most reliable (output file system should to have
+// enough free space but %TMP%/%TEMP% not)
+#define MAX_UNAME   (80)
+ static unsigned nn = 0;
+ size_t len = afile? strlen(afile) : 0;
+ char uname[MAX_UNAME + 2] = { 0 };
+ char *res = (char *)cmalloc(len + sizeof(uname) + 2, "temp file name");
+
+ *res = 0;
+
+ snprintf(uname, sizeof(uname) - 2, "cWt-%016llX-%08X.tmp", (unsigned long long)getpid(), nn++);
+ uname[sizeof(uname) - 1] = 0;
+
+ if(len)
+ {
+  size_t ib = len;
+
+  strcpy(res, afile);
+
+  while(ib)
+  {
+   --ib;
+   if('/' == res[ib] || '\\' == res[ib])              // '\\' == ??! TODO::decide, should we do it..
+    break;
+
+   res[ib] = '\0';
+  }
+ }
+
+ strcat(res, uname);
+
+ return res;
+}
+
+#endif
 
 /* check file extension
 */
@@ -141,35 +197,80 @@ int checkFileExt(const char *fname, const char *ext)
 
 /* read and check WAV PCM header
 */
-void readWavHeader(FILE *fp, unsigned *srate, unsigned *nsamples)
+void readWavHeader(FILE *fp, unsigned *srate, unsigned *nsamples, unsigned *byteps /* 2 or 3 */)
 {
  unsigned char buf[44];
+ unsigned bps = 2, ns = 0;
 
 // the code extracted from flac examples (www.flac.org)
 // [I agree, that the struct-based approach here is not so good ;))]
- if(fread(buf, 1, 44, fp) != 44 ||
-	memcmp(buf, "RIFF", 4) ||
-	memcmp(&buf[8], "WAVEfmt \020\000\000\000\001\000\002\000", 16) ||
-	memcmp(&buf[32], "\004\000\020\000data", 8))
+ if(fread(buf, 1, 44, fp) != 44)
+ {
+  error("ERROR: WAV header read error");
+ }
+
+ if( // 16 bit
+        !memcmp(buf, "RIFF", 4) &&
+        !memcmp(&buf[8], "WAVEfmt \020\000\000\000\001\000\002\000", 16) &&
+        !memcmp(&buf[32], "\004\000\020\000data", 8))
+ {
+  bps = 2;
+ }
+ else if( // legacy 24 bit
+        !memcmp(buf, "RIFF", 4) &&
+        !memcmp(&buf[8], "WAVEfmt \020\000\000\000\001\000\002\000", 16) &&
+        !memcmp(&buf[32], "\006\000\030\000data", 8))
+ {
+  bps = 3;
+ }
+ else
  {
   error("ERROR: invalid/unsupported WAVE file,\n"
-        "       only 16bps stereo WAVE in canonical form allowed");
+        "       only 16bps or lagacy 24bps stereo WAVE in canonical form allowed");
  }
+
+ ns = (((((((unsigned)buf[43] << 8) | buf[42]) << 8) | buf[41]) << 8) | buf[40]) / (2 /*ch*/ * bps);
+ if(!ns)
+ {
+  error("ERROR: WAV file has not audio samples");
+ }
+
  *srate = ((((((unsigned)buf[27] << 8) | buf[26]) << 8) | buf[25]) << 8) | buf[24];
- *nsamples = (((((((unsigned)buf[43] << 8) | buf[42]) << 8) | buf[41]) << 8) | buf[40]) / 4;
+ *nsamples = ns;
+ *byteps = bps;
 }
 
 /* read and convert to double one sample
 */
-void readWavSample(FILE *fp, double *ls, double *rs)
+void readWavSample(FILE *fp, unsigned byteps, double *ls, double *rs)
 {
- signed short buf[2];
+// we support LSB machines only. Integer WAV file always LSB.
+ signed short sbuf[2];
+ int ibuf[2];
+ const char emsg[] = "Input Wave PCM data read error";
 
- if(fread(buf, sizeof(short), 2, fp) != 2)
-  error("Input Wave PCM data read error");
+ switch(byteps)
+ {
+  case 2:
+   if(fread(sbuf, sizeof(short), 2, fp) != 2)
+    error(emsg);
 
- *ls = (double)buf[0];
- *rs = (double)buf[1];
+   *ls = (double)sbuf[0];
+   *rs = (double)sbuf[1];
+   break;
+
+  case 3:
+   if(fread(&ibuf[0], 1, 3, fp) != 3 || fread(&ibuf[1], 1, 3, fp) != 3)
+    error(emsg);
+
+   *ls = ((double)(ibuf[0] << 8)) / 65536.0;
+   *rs = ((double)(ibuf[1] << 8)) / 65536.0;
+   break;
+
+  default:
+   error("INTERNAL ERROR: Bad sample type");
+   break;
+ }
 }
 
 /* read complex wave (CWAWE) header
@@ -180,11 +281,11 @@ void readCwaveHeader(FILE *fp, HCWAVE *hcw)
   error("Can't read the Complex data header");
 
  if(memcmp(&(hcw -> magic[0]), HCW_MAGIC, sizeof(hcw -> magic)) != 0 ||
-	hcw -> hsize != sizeof(HCWAVE) ||
-	hcw -> version > HCW_VERSION_CUR ||
-	hcw -> version == HCW_VERSION_BAD ||
-	hcw -> n_channels != 2 ||
-	hcw -> n_samples < 2)
+        hcw -> hsize != sizeof(HCWAVE) ||
+        hcw -> version > HCW_VERSION_CUR ||
+        hcw -> version == HCW_VERSION_BAD ||
+        hcw -> n_channels != 2 ||
+        hcw -> n_samples < 2)
   error("Bad or unsupported CWAVE header");
 
  switch(hcw -> format)
@@ -212,25 +313,25 @@ void writeCwaveHeader(FILE *fp, HCWAVE *hcw)
 */
 void readComplex(FILE *fp, unsigned t_format, TMP_CRC32 *tcrc)
 {
- double buf[4];			// it has max size for the all formats
+ double buf[4];                 // it has max size for the all formats
 
  switch(t_format)
  {
   case HCW_FMT_PCM_DBL64:
    if(fread(buf, sizeof(double), 4, fp) != 4)
-	error("Input Complex(double) data read error");
+        error("Input Complex(double) data read error");
    crc32update(buf, sizeof(double) * 4, tcrc);
    break;
 
   case HCW_FMT_PCM_INT16:
    if(fread(buf, sizeof(short), 4, fp) != 4)
-	error("Input Complex(short) data read error");
+        error("Input Complex(short) data read error");
    crc32update(buf, sizeof(short) * 4, tcrc);
    break;
 
   case HCW_FMT_PCM_INT16_FLT32:
    if(fread(buf, sizeof(short) + sizeof(float), 2, fp) != 2)
-	error("Input Complex(short+float) data read error");
+        error("Input Complex(short+float) data read error");
    crc32update(buf, (sizeof(short) + sizeof(float)) * 2, tcrc);
    break;
    
@@ -300,8 +401,8 @@ static INLINE signed short round_dbl(double d, long *n_clips)
 
 // the main write function
 void writeComplex(FILE *fp, double l_re, double l_im,
-	double r_re, double r_im, const HCWAVE *hcw,
-	long *l_clips, long *r_clips, TMP_CRC32 *tcrc)
+        double r_re, double r_im, const HCWAVE *hcw,
+        long *l_clips, long *r_clips, TMP_CRC32 *tcrc)
 {
  double buf[4];
  short sbuf[4];
@@ -318,15 +419,15 @@ void writeComplex(FILE *fp, double l_re, double l_im,
    crc32update(buf, sizeof(double) * 4, tcrc);
 
    if(fwrite(buf, sizeof(double), 4, fp) != 4)
-	error("Output Complex(double) data write error");
+        error("Output Complex(double) data write error");
    break;
 
   case HCW_FMT_PCM_INT16:
-   sbuf[0] = round_dbl(l_re, l_clips);		// must be rounded
-   sbuf[2] = round_dbl(r_re, r_clips);		// must be rounded
+   sbuf[0] = round_dbl(l_re, l_clips);          // should be rounded
+   sbuf[2] = round_dbl(r_re, r_clips);          // should be rounded
 
-   sbuf[1] = round_dbl(l_im, l_clips);		// must be rounded
-   sbuf[3] = round_dbl(r_im, r_clips);		// must be rounded
+   sbuf[1] = round_dbl(l_im, l_clips);          // should be rounded
+   sbuf[3] = round_dbl(r_im, r_clips);          // should be rounded
 
    crc32update(sbuf, sizeof(short) * 4, tcrc);
    
@@ -335,13 +436,12 @@ void writeComplex(FILE *fp, double l_re, double l_im,
    break;
 
   case HCW_FMT_PCM_INT16_FLT32:
-#if 1
    {
     // this sample type is almost unuseful for FFT-based analitic converter.
     // so we don't try to write efficient code
     const char emwr[] = "Output Complex(short/float) data write error";
 
-    sbuf[0] = round_dbl(l_re, l_clips);		// must be rounded
+    sbuf[0] = round_dbl(l_re, l_clips);         // should be rounded
     crc32update(sbuf, sizeof(short), tcrc);
     if(fwrite(sbuf, sizeof(short), 1, fp) != 1)
      error(emwr);
@@ -351,7 +451,7 @@ void writeComplex(FILE *fp, double l_re, double l_im,
     if(fwrite(fbuf, sizeof(float), 1, fp) != 1)
      error(emwr);
 
-    sbuf[0] = round_dbl(r_re, r_clips);		// must be rounded
+    sbuf[0] = round_dbl(r_re, r_clips);         // should be rounded
     crc32update(sbuf, sizeof(short), tcrc);
     if(fwrite(sbuf, sizeof(short), 1, fp) != 1)
      error(emwr);
@@ -361,23 +461,6 @@ void writeComplex(FILE *fp, double l_re, double l_im,
     if(fwrite(fbuf, sizeof(float), 1, fp) != 1)
      error(emwr);
    }
-#else
-   {
-    // this code disliked by the gcc modern versions
-    char vbuf[(2 + 4) * 2];	// 2 * (sizeof(short) + sizeof(float))
-
-    *((short *)(&vbuf[0])) = round_dbl(l_re, l_clips);		// must be rounded
-    *((short *)(&vbuf[2 + 4])) = round_dbl(r_re, r_clips);	// must be rounded
-
-    *((float *)(&vbuf[2])) = (float)l_im;
-    *((float *)(&vbuf[2 + 4 + 2])) =  (float)r_im;
-
-    crc32update(vbuf, (sizeof(short) + sizeof(float)) * 2, tcrc);
-
-    if(fwrite(vbuf, sizeof(short) + sizeof(float), 2, fp) != 2)
-     error("Output Complex(short/float) data write error");
-   }
-#endif
    break;
 
   case HCW_FMT_PCM_FLT32:
@@ -435,22 +518,22 @@ void CalcTime(time_t tstart)
  tot -= tstart;
  sec = (unsigned)tot;
  printf("-- Processing time: ");
- if(0 != (t = tot / (24 * 60 * 60)))	// days
+ if(0 != (t = tot / (24 * 60 * 60)))    // days
  {
   printf("%u Days ", (unsigned)t);
   tot %= (24 * 60 * 60);
  }
- if(0 != (t = tot / (60 * 60)))		// hours
+ if(0 != (t = tot / (60 * 60)))         // hours
  {
   printf("%2u Hr ", (unsigned)t);
   tot %= (60 * 60);
  }
- if(0 != (t = tot / 60))		// minutes
+ if(0 != (t = tot / 60))                // minutes
  {
   printf("%2u Min ", (unsigned)t);
   tot %= 60;
  }
- printf("%u Sec (%u Sec total)\n", (unsigned)tot, sec);	// seconds
+ printf("%u Sec (%u Sec total)\n", (unsigned)tot, sec); // seconds
 }
 
 /* the end...
