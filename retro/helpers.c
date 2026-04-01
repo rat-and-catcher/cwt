@@ -3,7 +3,7 @@
  * the helpers functions for the analitic (complex) signal
  * transform program.
  *
- * Copyright (C) 2010-2012 Rat and Catcher Tech.
+ * Copyright (C) 2010-2026 Rat and Catcher Tech.
  *
  *  "This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -82,8 +82,11 @@ void cfseek(FILE *fp, long pos)
   error("fseek() can't reach the requested pos (%ld != %ld)", cpos, pos);
 }
 
-/* create temporary file name (must be free())
+/* create temporary file name (should be free())
 */
+
+#if 0
+
 char *ctempfile(void)
 {
  char *t = getenv("TMP"), *res, uname[80];
@@ -115,6 +118,49 @@ char *ctempfile(void)
  return res;
 }
 
+#else
+
+char *ctempfile(const char *afile)
+{
+// make a filename with the same path as argument
+// e.g. in the same folder as output file --
+// -- it can be slowly on mechanical HDD but looks
+// most reliable (output file system should to have
+// enough free space but %TMP%/%TEMP% not)
+#define MAX_UNAME   (80)
+ static unsigned nn = 0;
+ size_t len = afile? strlen(afile) : 0;
+ char uname[MAX_UNAME + 2] = { 0 };
+ char *res = (char *)cmalloc(len + sizeof(uname) + 2, "temp file name");
+
+ *res = 0;
+
+ _snprintf(uname, sizeof(uname) - 2, "CWT-%08X%08X.tmp", (unsigned)GetCurrentProcessId(), nn++);
+ uname[sizeof(uname) - 1] = 0;
+
+ if(len)
+ {
+  size_t ib = len;
+
+  strcpy(res, afile);
+
+  while(ib)
+  {
+   --ib;
+   if('\\' == res[ib] || '/' == res[ib] || ':' == res[ib])
+    break;
+
+   res[ib] = '\0';
+  }
+ }
+
+ strcat(res, uname);
+
+ return res;
+}
+
+#endif
+
 /* check file extension
 */
 int checkFileExt(const char *fname, const char *ext)
@@ -129,35 +175,80 @@ int checkFileExt(const char *fname, const char *ext)
 
 /* read and check WAV PCM header
 */
-void readWavHeader(FILE *fp, unsigned *srate, unsigned *nsamples)
+void readWavHeader(FILE *fp, unsigned *srate, unsigned *nsamples, unsigned *byteps /* 2 or 3 */)
 {
  unsigned char buf[44];
+ unsigned bps = 2, ns = 0;
 
 // the code extracted from flac examples (www.flac.org)
 // [I agree, that the struct-based approach here is not so good ;))]
- if(fread(buf, 1, 44, fp) != 44 ||
-        memcmp(buf, "RIFF", 4) ||
-        memcmp(&buf[8], "WAVEfmt \020\000\000\000\001\000\002\000", 16) ||
-        memcmp(&buf[32], "\004\000\020\000data", 8))
+ if(fread(buf, 1, 44, fp) != 44)
+ {
+  error("ERROR: WAV header read error");
+ }
+
+ if( // 16 bit
+        !memcmp(buf, "RIFF", 4) &&
+        !memcmp(&buf[8], "WAVEfmt \020\000\000\000\001\000\002\000", 16) &&
+        !memcmp(&buf[32], "\004\000\020\000data", 8))
+ {
+  bps = 2;
+ }
+ else if( // legacy 24 bit
+        !memcmp(buf, "RIFF", 4) &&
+        !memcmp(&buf[8], "WAVEfmt \020\000\000\000\001\000\002\000", 16) &&
+        !memcmp(&buf[32], "\006\000\030\000data", 8))
+ {
+  bps = 3;
+ }
+ else
  {
   error("ERROR: invalid/unsupported WAVE file,\n"
-        "       only 16bps stereo WAVE in canonical form allowed");
+        "       only 16bps or lagacy 24bps stereo WAVE in canonical form allowed");
  }
+
+ ns = (((((((unsigned)buf[43] << 8) | buf[42]) << 8) | buf[41]) << 8) | buf[40]) / (2 /*ch*/ * bps);
+ if(!ns)
+ {
+  error("ERROR: WAV file has not audio samples");
+ }
+
  *srate = ((((((unsigned)buf[27] << 8) | buf[26]) << 8) | buf[25]) << 8) | buf[24];
- *nsamples = (((((((unsigned)buf[43] << 8) | buf[42]) << 8) | buf[41]) << 8) | buf[40]) / 4;
+ *nsamples = ns;
+ *byteps = bps;
 }
 
 /* read and convert to double one sample
 */
-void readWavSample(FILE *fp, double *ls, double *rs)
+void readWavSample(FILE *fp, unsigned byteps, double *ls, double *rs)
 {
- signed short buf[2];
+// Windows run on LSB machines only. Integer WAV file always LSB.
+ signed short sbuf[2];
+ int ibuf[2];
+ const char emsg[] = "Input Wave PCM data read error";
 
- if(fread(buf, sizeof(short), 2, fp) != 2)
-  error("Input Wave PCM data read error");
+ switch(byteps)
+ {
+  case 2:
+   if(fread(sbuf, sizeof(short), 2, fp) != 2)
+    error(emsg);
 
- *ls = (double)buf[0];
- *rs = (double)buf[1];
+   *ls = (double)sbuf[0];
+   *rs = (double)sbuf[1];
+   break;
+
+  case 3:
+   if(fread(&ibuf[0], 1, 3, fp) != 3 || fread(&ibuf[1], 1, 3, fp) != 3)
+    error(emsg);
+
+   *ls = ((double)(ibuf[0] << 8)) / 65536.0;
+   *rs = ((double)(ibuf[1] << 8)) / 65536.0;
+   break;
+
+  default:
+   error("INTERNAL ERROR: Bad sample type");
+   break;
+ }
 }
 
 /* read complex wave (CWAWE) header
@@ -289,7 +380,8 @@ static INLINE signed short round_dbl(double d, long *n_clips)
 // the main write function
 void writeComplex(FILE *fp, double l_re, double l_im,
         double r_re, double r_im, const HCWAVE *hcw,
-        long *l_clips, long *r_clips, TMP_CRC32 *tcrc)
+        long *l_clips, long *r_clips, TMP_CRC32 *tcrc,
+        int is16b)
 {
  double buf[4];
  short sbuf[4];
@@ -311,18 +403,18 @@ void writeComplex(FILE *fp, double l_re, double l_im,
    break;
 
   case HCW_FMT_PCM_INT16:
-   if(hcw -> k_M > 0)                           // Hilbert FIR
+   if(hcw -> k_M > 0 && is16b)                  // Hilbert FIR + 16 bit samples
    {
-    sbuf[0] = trunk_dbl(l_re, l_clips);         // l_re contain precision value
-    sbuf[2] = trunk_dbl(r_re, r_clips);         // r_re contain precision value
+    sbuf[0] = trunk_dbl(l_re, l_clips);         // l_re contain exact value
+    sbuf[2] = trunk_dbl(r_re, r_clips);         // r_re contain exact value
    }
    else                                         // direct FFT
    {
-    sbuf[0] = round_dbl(l_re, l_clips);         // must be rounded
-    sbuf[2] = round_dbl(r_re, r_clips);         // must be rounded
+    sbuf[0] = round_dbl(l_re, l_clips);         // should be rounded
+    sbuf[2] = round_dbl(r_re, r_clips);         // should be rounded
    }
-   sbuf[1] = round_dbl(l_im, l_clips);          // must be rounded
-   sbuf[3] = round_dbl(r_im, r_clips);          // must be rounded
+   sbuf[1] = round_dbl(l_im, l_clips);          // should be rounded
+   sbuf[3] = round_dbl(r_im, r_clips);          // should be rounded
 
    crc32update(sbuf, sizeof(short) * 4, tcrc);
    
@@ -331,18 +423,23 @@ void writeComplex(FILE *fp, double l_re, double l_im,
    break;
 
   case HCW_FMT_PCM_INT16_FLT32:
-   if(hcw -> k_M > 0)                           // Hilbert FIR
+   if(hcw -> k_M > 0 && is16b)                  // Hilbert FIR + 16 bit samples
    {
-    *((short *)(&vbuf[0])) = trunk_dbl(l_re, l_clips);          // l_re contain precision value
-    *((short *)(&vbuf[2 + 4])) = trunk_dbl(r_re, r_clips);      // r_re contain precision value
+    sbuf[0] = trunk_dbl(l_re, l_clips);         // l_re contain exact value
+    sbuf[1] = trunk_dbl(r_re, r_clips);         // r_re contain exact value
    }
    else                                         // direct FFT
    {
-    *((short *)(&vbuf[0])) = round_dbl(l_re, l_clips);          // must be rounded
-    *((short *)(&vbuf[2 + 4])) = round_dbl(r_re, r_clips);      // must be rounded
+    sbuf[0] = round_dbl(l_re, l_clips);         // should be rounded
+    sbuf[1] = round_dbl(r_re, r_clips);         // should be rounded
    }
-   *((float *)(&vbuf[2])) = (float)l_im;
-   *((float *)(&vbuf[2 + 4 + 2])) =  (float)r_im;
+   fbuf[0] = (float)l_im;
+   fbuf[1] = (float)r_im;
+
+   memcpy(&vbuf[0                                            ], &sbuf[0], sizeof(short));
+   memcpy(&vbuf[sizeof(short)                                ], &fbuf[0], sizeof(float));
+   memcpy(&vbuf[sizeof(short) + sizeof(float)                ], &sbuf[1], sizeof(short));
+   memcpy(&vbuf[sizeof(short) + sizeof(float) + sizeof(short)], &fbuf[1], sizeof(float));
 
    crc32update(vbuf, (sizeof(short) + sizeof(float)) * 2, tcrc);
 

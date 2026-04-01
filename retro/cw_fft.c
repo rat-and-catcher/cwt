@@ -2,7 +2,7 @@
  * cw-fft.c -- the FFT implementation file for the
  * 2-ch wav to atalitic (complex) signal transformation;
  * This program can be distributed under GNU GPL
- * Copyright (C) 2010-2012 Rat and Catcher Tech.
+ * Copyright (C) 2010-2026 Rat and Catcher Tech.
  *
  *  "This program is free software: you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -112,14 +112,16 @@ void ProcessFFT(void)
 // prepare real data
  for(i = 0; i < app.hcw.n_samples; ++i)
  {
-  readWavSample(app.fpif, &((double *)dataL)[i], &((double *)dataR)[i]);
+  readWavSample(app.fpif, app.byteps, &((double *)dataL)[i], &((double *)dataR)[i]);
   ((double *)dataL)[i] *= app.gain_mul;
   ((double *)dataR)[i] *= app.gain_mul;
  }
+
  if(app.hcw.n_samples < app.nsFFT)
  {
-  ((double *)dataL)[app.hcw.n_samples] = 0.0;
-  ((double *)dataR)[app.hcw.n_samples] = 0.0;
+  // it seems more safe to count allignment sample equal the last sample of the track
+  ((double *)dataL)[app.hcw.n_samples] = ((double *)dataL)[app.hcw.n_samples - 1];
+  ((double *)dataR)[app.hcw.n_samples] = ((double *)dataR)[app.hcw.n_samples - 1];
  }
 
 // make forward FFT's
@@ -163,7 +165,8 @@ void ProcessFFT(void)
  {
   writeComplex(app.fpof, dataL[i][0], dataL[i][1],
         dataR[i][0], dataR[i][1], &app.hcw,
-        &app.l_clips, &app.r_clips, &app.tcrc);
+        &app.l_clips, &app.r_clips, &app.tcrc,
+        16 == app.byteps);
  }
 
  fftw_free(dataR);
@@ -201,11 +204,13 @@ void ProcessFFT_Safe(void)
  // prepare real data -- left channel
  for(i = 0; i < app.hcw.n_samples; ++i)
  {
-  readWavSample(app.fpif, &((double *)data)[i], &dummy);
+  readWavSample(app.fpif, app.byteps, &((double *)data)[i], &dummy);
   ((double *)data)[i] *= app.gain_mul;
  }
+
+ // it seems more safe to count allignment sample equal the last sample of the track
  if(app.hcw.n_samples < app.nsFFT)
-  ((double *)data)[app.hcw.n_samples] = 0.0;
+  ((double *)data)[app.hcw.n_samples] = ((double *)data)[app.hcw.n_samples - 1];
 
  // process left channel
  ProcessSingleChFFT(data, plflags, "Left");
@@ -218,7 +223,7 @@ void ProcessFFT_Safe(void)
  if(app.isVerbose)
   printf("-- Saving temporary data for the Left channel\n");
 
- nmt = ctempfile();
+ nmt = ctempfile(app.nameof);
  fpt = cfopen(nmt, "w+b", "temporary data");
  // here we can't use singe fwrite -- MS crt fwrite hang up
  // at files >= 4 GB
@@ -233,11 +238,13 @@ void ProcessFFT_Safe(void)
  cfseek(app.fpif, beginWavData);
  for(i = 0; i < app.hcw.n_samples; ++i)
  {
-  readWavSample(app.fpif, &dummy, &((double *)data)[i]);
+  readWavSample(app.fpif, app.byteps, &dummy, &((double *)data)[i]);
  ((double *)data)[i] *= app.gain_mul;
  }
+
+ // it seems more safe to count allignment sample equal the last sample of the track
  if(app.hcw.n_samples < app.nsFFT)
-  ((double *)data)[app.hcw.n_samples] = 0.0;
+  ((double *)data)[app.hcw.n_samples] = ((double *)data)[app.hcw.n_samples - 1];
 
  // process right channel
  ProcessSingleChFFT(data, plflags, "Right");
@@ -252,7 +259,8 @@ void ProcessFFT_Safe(void)
    error("Read error for temporary data");
   writeComplex(app.fpof, dl[0], dl[1],
         data[i][0], data[i][1], &app.hcw,
-        &app.l_clips, &app.r_clips, &app.tcrc);
+        &app.l_clips, &app.r_clips, &app.tcrc,
+        16 == app.byteps);
  }
 
  fclose(fpt);

@@ -54,15 +54,21 @@
  * Version V1.0.9 12-apr-2012
  * -- major bug fix @processSpectrun().cw_fft.c (V1.0.7 and V1.0.8)
  * Version V1.1.0 2-oct-2012
- * fix some comments / messages / copyright notes only
+ * -- fix some comments / messages / copyright notes only
  * Version V1.1.1 31-mar-2015
- * Move to VC2013; some x64 project fixes; some comments / messages fixes
+ * -- Move to VC2013; some x64 project fixes; some comments / messages fixes
  * Version V1.1.2 21-jun-2016
- * Some project fixes; FFTW3.3.4 added; -q; -r21; FFTW version info
+ * -- Some project fixes; FFTW3.3.4 added; -q; -r21; FFTW version info
  * Version V1.1.3 16-oct-2017
- * minor fixes in comments/messages
+ * -- minor fixes in comments/messages
  * Version V1.1.4 05-0ct-2024
- * Fix some misudersood in NULL return value of FFTW planners
+ * -- Fix some misuderstanding in FFTW planners API
+ * Version V1.1.5 13-Nov-2024
+ * -- Add setlocale() (ANSI Code Page); attempt to read 24-bit legacy WAVs
+ * Version V1.1.6 29-Mar-2026
+ * -- Place temp file(s) alongside output;
+ *    some changes about FFT(w) -- N samples can be not only strictly exen or odd, but native;
+ *    some minor changes
  */
 
 #ifndef _cw_h_
@@ -81,6 +87,7 @@
 #include <math.h>
 #include <time.h>
 #include <io.h>
+#include <locale.h>
 
 #include "hilb_fir.h"
 #include "crc32.h"
@@ -94,7 +101,7 @@
 #include "cwave.h"
 
 // version
-#define VERSION         ("V1.1.4")      /* program version */
+#define VERSION         ("V1.1.6")      /* program version */
 
 #if defined(_WIN64)                     /* platform name */
 #define PLATFORM        ("x64")
@@ -182,7 +189,12 @@ typedef struct tagAPPLICATION_CW
  int nThr;                      // 1 - single thread, 2 - (two) threads, def == #CPU's in system
 // FFT specific parameters
  int isFFT;                     // 1 - conversion via FFT(W)
- int isFFTeven;                 // 1 - even number of points in FFT, (0 == odd)
+ enum
+ {
+  FFT_NS_NATIVE = 0,            // no specoal alignment; .nsFFT = numder of samples of source
+  FFT_NS_ODD,                   // .nsFFT aligned fo odd -- no DC-mirror bin
+  FFT_NS_EVEN                   // .nsFFT aligned fo even -- DC-mirror bin exist
+ } fft_alignment;               // FFT alignment
  int isFFTsafe;                 // 1 - safe but slow FFT
  int isFFTstat;                 // 1 - print FFTW plan statistics
  int isPlanOut;                 // 1 - write FFTW plans to stdout
@@ -202,6 +214,7 @@ typedef struct tagAPPLICATION_CW
  long r_clips;                  // detected clips for the right channel
  void (*MakeHilbert)(LRCH *ch); // active method for the FIR-based Hilbert transform
  HCWAVE hcw;                    // complex wave header
+ unsigned byteps;               // bytes (2 or 3) in WAV sample
 } APPLICATION_CW;
 
 /*
@@ -232,16 +245,20 @@ long cftell(FILE *fp);
 void cfseek(FILE *fp, long pos);
 /* create temporary file name (must be free())
 */
+#if 0
 char *ctempfile(void);
+#else
+char *ctempfile(const char *afile);
+#endif
 /* check file extension
 */
 int checkFileExt(const char *fname, const char *ext);
 /* read and check WAV PCM header
 */
-void readWavHeader(FILE *fp, unsigned *srate, unsigned *nsamples);
+void readWavHeader(FILE *fp, unsigned *srate, unsigned *nsamples, unsigned *byteps /* 2 or 3 */);
 /* read and convert to double one sample
 */
-void readWavSample(FILE *fp, double *ls, double *rs);
+void readWavSample(FILE *fp, unsigned byteps, double *ls, double *rs);
 /* read complex wave (CWAWE) header
 */
 void readCwaveHeader(FILE *fp, HCWAVE *hcw);
@@ -255,7 +272,8 @@ void readComplex(FILE *fp, unsigned t_format, TMP_CRC32 *tcrc);
 */
 void writeComplex(FILE *fp, double l_re, double l_im,
           double r_re, double r_im, const HCWAVE *hcw,
-          long *l_clips, long *r_clips, TMP_CRC32 *tcrc);
+          long *l_clips, long *r_clips, TMP_CRC32 *tcrc,
+          int is16b);
 /* print CWAVE format information
 */
 void PrintCwaveFormat(unsigned cw_format);

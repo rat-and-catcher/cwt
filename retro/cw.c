@@ -45,18 +45,18 @@ static void verinfo(void);
 /* show help text
 */
 static void help(void);
-/* The main processing function
+/* the main process function
 */
 static void TheProcess(void);
 /* check CRC of CWAVE
 */
 static void CheckCrcProcess(void);
-/* the single thread processing routine
+/* naive Hilbert FIR -- the single thread processing routine
 */
-static void SingleTreadProcess(void);
-/* the multi tread processing routine
+static void SingleTreadProcessNFIR(void);
+/* naive Hilbert FIR -- the multi tread processing routine
 */
-static void MultiThreadProcess(void);
+static void MultiThreadProcessNFIR(void);
 /* allocate and init all the need to LRCH
 */
 static void PrepareChBufs(LRCH *ch, const char *comment);
@@ -86,6 +86,8 @@ static void FreeThrChBufs(TCH *ch);
 */
 int main(int argc, char **argv)
 {
+ setlocale(LC_ALL, ".ACP");
+
  printf("cw -- real(wav) to analitic(cwave) file converter, version %s\n", VERSION);
 
  VarInit();
@@ -117,7 +119,7 @@ static void VarInit(void)
  app.nThr = GetCpuNumber();
 
  app.isFFT = 0;
- app.isFFTeven = 0;
+ app.fft_alignment = FFT_NS_NATIVE;
  app.isFFTsafe = 0;
  app.isFFTstat = 0;
  app.isPlanOut = 0;
@@ -131,6 +133,7 @@ static void VarInit(void)
  app.fpif = app.fpof = NULL;
  crc32init(&app.tcrc);
  app.l_clips = app.r_clips = 0;
+ app.byteps = 2;
  app.MakeHilbert = NULL;
 }
 
@@ -166,8 +169,11 @@ static void parseCommandLine(int argc, char **argv)
      {
       switch(s[k])
       {
+       case 'o':        // make "odd" FFT
+        app.fft_alignment = FFT_NS_ODD;
+        break;
        case 'e':        // make "even" FFT
-        app.isFFTeven = 1;
+        app.fft_alignment = FFT_NS_EVEN;
         break;
        case 's':        // make "safe" FFT
         app.isFFTsafe = 1;
@@ -460,9 +466,10 @@ static void help(void)
         "-g value - set gain multiplier for input samples\n"
         "-p - print only Hilbert FIR filter coefficients (w/o any files)\n"
         "-t - check input.CWAVE (w/o any output) for integrity\n"
-        "-f[e][s][i] - make conversion via FFT, not Hilbert FIR filter\n"
+        "-f[o|e][s][i] - make conversion via FFT, not a Hilbert FIR filter\n"
+        "-fo - same as -f, but make total number of FFT points strictly odd\n"
         "-fe - same as -f, but make total number of FFT points strictly even\n"
-        "      (default - strictly odd, regardless real number of samples)\n"
+        "      (default - number of source samples; -fo/-fe strictly DFT DC bin)\n"
         "-fs - same as -f, but slowly and safely (recommended for big files)\n"
         "-fi - same as -f, but w/o using SIMD (SSE2) instructions (silly:);\n"
         "-rX freq - (FFT only) remove low/high frequences from the spectrum:\n"
@@ -491,7 +498,7 @@ static void help(void)
         DEF_M, DEF_BETA, DEF_GAIN);
  printf("** Default CWAVE type -- '-im' for FIR; '-if' for -f (FFT)\n");
 
- printf("\nCopyright (C) 2010-2016 Rat and Catcher Tech.\n"
+ printf("\nCopyright (C) 2010-2026 Rat and Catcher Tech.\n"
         "\n"
         "This program is free software: you can redistribute it and/or modify\n"
         "it under the terms of the GNU General Public License as published by\n"
@@ -567,10 +574,20 @@ static void TheProcess(void)
  // prepare for processing
  app.fpif = cfopen(app.nameif, "rb", "input WAV-data");
  app.fpof = cfopen(app.nameof, "wb", "output complex data");
- readWavHeader(app.fpif, &app.hcw.sample_rate, &app.hcw.n_samples);
+ readWavHeader(app.fpif, &app.hcw.sample_rate, &app.hcw.n_samples, &app.byteps);
  if(!app.isFFT)
   if(app.hcw.n_samples < (unsigned)(app.k_M * 2))
    error("Input too short");
+
+ if(app.byteps > 2 && HCW_FMT_PCM_INT16_FLT32 == app.c_format)
+  printf("Warning: %s;\n"
+         "         consider -if or -id cwave format specifier instead\n",
+        app.k_M > 0?
+            "-im lossless for 16bit input only"
+            :
+            "-im looks irrelevant for selected algorithm"
+    );
+
  memcpy(&(app.hcw.magic[0]), HCW_MAGIC, sizeof(app.hcw.magic));
  app.hcw.hsize = sizeof(app.hcw);
  app.hcw.version = HCW_VERSION_BAD;
@@ -580,16 +597,33 @@ static void TheProcess(void)
  app.hcw.n_CRC32 = 0;
  app.hcw.k_beta = app.k_beta;
  writeCwaveHeader(app.fpof, &app.hcw);
+ if(app.isVerbose)
+  printf("-- Input: Sample Rate: %u Hz; #samples: %u; BPS: %u\n",
+    app.hcw.sample_rate, app.hcw.n_samples, app.byteps * 8);
 
  // ..processing..
  if(app.isFFT)
  {
-  if(!fftw_init_threads())
-   error("Can't initialized multi-tread FFTW");
-  fftw_plan_with_nthreads(app.nThr);
+  if(app.nThr > 1)
+  {
+   if(!fftw_init_threads())
+    error("Can't initialize multi-tread FFTW");
+   fftw_plan_with_nthreads(app.nThr);
+  }
 
-  app.nsFFT = app.isFFTeven?                            // STRICTLY even or STRICTLY odd
-        (app.hcw.n_samples + 1U) & (~01U) : app.hcw.n_samples | 01U;
+  switch(app.fft_alignment)
+  {
+   default:
+   case FFT_NS_NATIVE:
+    app.nsFFT = app.hcw.n_samples;                      // as is
+    break;
+   case FFT_NS_ODD:                                     // strictly odd -- no DC bin
+    app.nsFFT = app.hcw.n_samples | 01U;
+    break;
+   case FFT_NS_EVEN:                                    // strictly even -- DC bin exist
+    app.nsFFT = (app.hcw.n_samples + 1U) & (~01U);
+    break;
+  }
 
   CalcFFTpass();                // FFT filter calculations
 
@@ -598,14 +632,15 @@ static void TheProcess(void)
   else
    ProcessFFT();
 
-  fftw_cleanup_threads();
+  if(app.nThr > 1)
+   fftw_cleanup_threads();
  }
  else
  {
   if(app.nThr < 2)
-   SingleTreadProcess();
+   SingleTreadProcessNFIR();
   else
-   MultiThreadProcess();
+   MultiThreadProcessNFIR();
  }
 
  // finish
@@ -685,9 +720,9 @@ static void CheckCrcProcess(void)
  }
 }
 
-/* the single thread processing routine
+/* naive Hilbert FIR -- the single thread processing routine
 */
-static void SingleTreadProcess(void)
+static void SingleTreadProcessNFIR(void)
 {
  LRCH lch;                              // left channel data
  LRCH rch;                              // right channel data 
@@ -701,7 +736,7 @@ static void SingleTreadProcess(void)
  {
   if(n < app.hcw.n_samples)
   {
-   readWavSample(app.fpif, &(lch.s_in), &(rch.s_in));
+   readWavSample(app.fpif, app.byteps, &(lch.s_in), &(rch.s_in));
    lch.s_in *= app.gain_mul;
    rch.s_in *= app.gain_mul;
   }
@@ -717,7 +752,8 @@ static void SingleTreadProcess(void)
   {
    writeComplex(app.fpof, lch.s_real, lch.s_image,
         rch.s_real, rch.s_image, &app.hcw,
-        &app.l_clips, &app.r_clips, &app.tcrc);
+        &app.l_clips, &app.r_clips, &app.tcrc,
+        16 == app.byteps);
   }
   ShowProgress(n, cnt);
  }
@@ -727,9 +763,9 @@ static void SingleTreadProcess(void)
  FreeChBufs(&rch);
 }
 
-/* the multi tread processing routine
+/* naive Hilbert FIR -- the multi tread processing routine
 */
-static void MultiThreadProcess(void)
+static void MultiThreadProcessNFIR(void)
 {
  HANDLE waitOut[2];
  HANDLE hthr_l, hthr_r;
@@ -766,7 +802,7 @@ static void MultiThreadProcess(void)
   {
    if(nr < app.hcw.n_samples)
    {
-    readWavSample(app.fpif, &(lch -> indata[i]), &(rch -> indata[i]));
+    readWavSample(app.fpif, app.byteps, &(lch -> indata[i]), &(rch -> indata[i]));
    }
    else
    {
@@ -786,7 +822,8 @@ static void MultiThreadProcess(void)
    {
     writeComplex(app.fpof, lch -> re_outdata[i], lch -> im_outdata[i],
         rch -> re_outdata[i], rch -> im_outdata[i], &app.hcw,
-        &app.l_clips, &app.r_clips, &app.tcrc);
+        &app.l_clips, &app.r_clips, &app.tcrc,
+        16 == app.byteps);
    }
   }
   ShowProgress(nw, cnt);
@@ -802,7 +839,7 @@ static void MultiThreadProcess(void)
  {
   if(nr < app.hcw.n_samples)
   {
-   readWavSample(app.fpif, &(lch -> indata[i]), &(rch -> indata[i]));
+   readWavSample(app.fpif, app.byteps, &(lch -> indata[i]), &(rch -> indata[i]));
   }
   else
   {
@@ -822,7 +859,8 @@ static void MultiThreadProcess(void)
   {
    writeComplex(app.fpof, lch -> re_outdata[i], lch -> im_outdata[i],
         rch -> re_outdata[i], rch -> im_outdata[i], &app.hcw,
-        &app.l_clips, &app.r_clips, &app.tcrc);
+        &app.l_clips, &app.r_clips, &app.tcrc,
+        16 == app.byteps);
   }
   ShowProgress(nw, cnt);
  }
