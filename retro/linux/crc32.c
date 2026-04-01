@@ -25,7 +25,7 @@
 // the  table for CRC32 computations
 static unsigned crc32table_[256] =
 {
- 0, 0						// not initialized
+ 0, 0                       // not initialized
 };
 
 /* helper -- initialization of CRC32 computation
