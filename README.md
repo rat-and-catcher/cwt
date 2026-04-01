@@ -1,9 +1,10 @@
 # cwt -- Complex (audio) Wave Tool
 
 In ./retro folder you can to find old sources of our **old** cwave production tool (cw).
-This is Windows only CLI program; and have lots of limitations (input -- 16 bit stereo
-WAV w/o any metadata and chunks different from 'fmt ' and 'data'; ASCII charset for
-file names and so). Its need FFTW3 (fftw.org) library to compile and work.
+This is Windows only CLI program; and have lots of limitations (input -- 16 or 24 bit stereo
+WAV w/o any metadata and chunks different from 'fmt ' and 'data'; ASCII (or OEM/DOS) charset for
+file names and so). Its need FFTW3 (fftw.org) library to compile and work. You shoud to use
+cw???.exe -h for list of program options; its rather big.
 
 ./retro/fftw-win contain some fftw-3.3.4 Visual Studio solution as well as our **cw -only**
 patch for original fftw-3.3.4 sources (./retro/fftw-win/fftw-3.3.4/kernel/assert.c).
