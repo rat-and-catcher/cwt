@@ -25,6 +25,8 @@
 *.aps
 *.db
 **/.vs/
+**/Win32/
+**/x64/
 *.layout
 # Documentation
 *.docx
