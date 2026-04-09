@@ -35,3 +35,7 @@
 # Version control
 **/.svn/
 *.cod
+# Original FFTW3
+**/fftw-3.3.10/
+# FFTW3 cmake-based build
+**/fftw-3.3.10-build/build-*/

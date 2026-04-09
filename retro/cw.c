@@ -1,6 +1,6 @@
 /*
  * cw.c -- the main implementation file windows-only
- * 2-ch wav to atalitic (complex) signal transformation;
+ * 2-ch wav to analitic (complex) signal transformation;
  * (FIR based Hilbert transform + direct FFT-based transform)
  * This program can be distributed under GNU GPL
  * Copyright (C) 2010-2013 Rat and Catcher Tech.
@@ -576,17 +576,17 @@ static void TheProcess(void)
  app.fpof = cfopen(app.nameof, "wb", "output complex data");
  readWavHeader(app.fpif, &app.hcw.sample_rate, &app.hcw.n_samples, &app.byteps);
  if(!app.isFFT)
+ {
   if(app.hcw.n_samples < (unsigned)(app.k_M * 2))
    error("Input too short");
-
- if(app.byteps > 2 && HCW_FMT_PCM_INT16_FLT32 == app.c_format)
-  printf("Warning: %s;\n"
-         "         consider -if or -id cwave format specifier instead\n",
-        app.k_M > 0?
-            "-im lossless for 16bit input only"
-            :
-            "-im looks irrelevant for selected algorithm"
-    );
+  if(app.byteps > 2 && HCW_FMT_PCM_INT16_FLT32 == app.c_format)
+   printf("Warning: -im lossless for 16bit input only\n");
+ }
+ else
+ {
+  if(HCW_FMT_PCM_INT16_FLT32 == app.c_format)
+   printf("Warning: -im looks irrelevant for selected algorithm\n");
+ }
 
  memcpy(&(app.hcw.magic[0]), HCW_MAGIC, sizeof(app.hcw.magic));
  app.hcw.hsize = sizeof(app.hcw);
@@ -604,6 +604,9 @@ static void TheProcess(void)
  // ..processing..
  if(app.isFFT)
  {
+  // set exception vs abort()
+  (void)fftw_rc_fail_behavior_gs(1);
+  
   if(app.nThr > 1)
   {
    if(!fftw_init_threads())
@@ -625,7 +628,7 @@ static void TheProcess(void)
     break;
   }
 
-  CalcFFTpass();                // FFT filter calculations
+  CalcFFTpass();                                        // FFT filter calculations
 
   if(app.isFFTsafe)
    ProcessFFT_Safe();

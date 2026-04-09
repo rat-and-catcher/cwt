@@ -1,6 +1,6 @@
 /*
  * cw.h -- the main declaration file windows-only
- * 2-ch wav to atalitic (complex) signal transformation;
+ * 2-ch wav to analitic (complex) signal transformation;
  * (FIR based Hilbert transform + direct FFT-based transform)
  * This program can be distributed under GNU GPL
  *
@@ -65,9 +65,10 @@
  * -- Fix some misuderstanding in FFTW planners API
  * Version V1.1.5 13-Nov-2024
  * -- Add setlocale() (ANSI Code Page); attempt to read 24-bit legacy WAVs
- * Version V1.1.6 29-Mar-2026
+ * Version V1.1.6 09-Apr-2026
  * -- Place temp file(s) alongside output;
- *    some changes about FFT(w) -- N samples can be not only strictly exen or odd, but native;
+ *    some changes about FFT(w) -- N samples can be not only strictly even or odd, but native too;
+ *    move to FFTW3.3.10 (cmake'ed, R&C patch) and VS2017;
  *    some minor changes
  */
 
@@ -92,11 +93,8 @@
 #include "hilb_fir.h"
 #include "crc32.h"
 
-#if !defined(FFTW334)
 #include <fftw3.h>                      /* out of the project tree now from V1.0.6 */
-#else
-#include <fftw334.h>                    /* fftw3.h from FFTW 3.3.4 */
-#endif
+#include <fftw3-rc.h>                   /* our extension(s) */
 
 #include "cwave.h"
 

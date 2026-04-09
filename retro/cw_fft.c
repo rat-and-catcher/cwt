@@ -1,6 +1,6 @@
 /*
  * cw-fft.c -- the FFT implementation file for the
- * 2-ch wav to atalitic (complex) signal transformation;
+ * 2-ch wav to analitic (complex) signal transformation;
  * This program can be distributed under GNU GPL
  * Copyright (C) 2010-2026 Rat and Catcher Tech.
  *
