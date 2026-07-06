@@ -39,5 +39,12 @@
 *.cod
 # Original FFTW3
 **/fftw-3.3.10/
+**/fftw-3.3.11/
 # FFTW3 cmake-based build
 **/fftw-3.3.10-build/build-*/
+**/fftw-3.3.11-build/build-*/
+# additional checksums
+*.sha256
+# non-to-publish folders
+**/src/
+**/VS*/
