@@ -5,7 +5,7 @@ setlocal
 set FFTW_MSVS="Visual Studio 15 2017"
 rem set FFTW_MSVS="NMake Makefiles"
 set PFMS=x64 Win32
-set FFTW_VER=3.3.10
+set FFTW_VER=3.3.11
 
 rem "Useful" mean "double"
 
@@ -35,5 +35,12 @@ echo %VCMAKE%
 %VCMAKE%
 if errorlevel 1 cd .. ; exit /b 1
 cd ..
+set BCMAKE=cmake --build %WD% --config=Release
+echo %BCMAKE%
+%BCMAKE%
+set BCMAKE=cmake --build %WD% --config=Debug
+echo %BCMAKE%
+%BCMAKE%
+if errorlevel 1 exit /b 1
 exit /b 0
 

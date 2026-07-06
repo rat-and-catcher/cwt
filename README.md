@@ -6,9 +6,9 @@ WAV w/o any metadata and chunks different from `fmt ` and `data`; ASCII (or OEM/
 file names and so). Its need FFTW3 (fftw.org) library to compile and work. You shoud to use
 cwt???.exe -h for list of program options; its rather big.
 
-We create some (initially for Windows) build / test fftw3 (fftw 3.3.10 now)
-infrastructure in the folder `./fftw-3.3.10-build/`. To build it, you should unpack original
-fftw-3.3.10 source tarball alongside this folder. You also need cmake (minimum V3.15)
+We create some (initially for Windows) build / test fftw3 (fftw 3.3.11 now)
+infrastructure in the folder `./fftw-3.3.11-build/`. To build it, you should unpack original
+fftw-3.3.11 source tarball alongside this folder. You also need cmake (minimum V3.15)
 in your path. Windows batch files alongside `CMakeLists.txt` in the folder could make
 your life easy in the way. Note, that they apply some our patch in the build process,
 but you can still to build original untouched FFTW. Note, that our projects needs our
@@ -52,6 +52,5 @@ our code. This works under Windows and don't works in most Linux distributions.
 For the moment this was enough for us. Of course, we see some more sufficient solutions,
 but they need some efforts. Probably we will do it, probably not.
 
-Now we have sufficient FFTW3 V3.3.10 build environment for Windows-only and workable
+Now we have sufficient FFTW3 V3.3.10 and V3.3.11 build environment for Windows-only and workable
 workaround of out-of-memory problem; its not a fork.
-

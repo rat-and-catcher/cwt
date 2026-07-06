@@ -5,7 +5,7 @@ setlocal
 set FFTW_MSVS="Visual Studio 15 2017"
 rem set FFTW_MSVS="NMake Makefiles"
 set PFMS=x64 Win32
-set FFTW_VER=3.3.10
+set FFTW_VER=3.3.11
 
 rem "Useful" mean "double"
 

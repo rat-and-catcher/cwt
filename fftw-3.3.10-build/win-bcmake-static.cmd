@@ -5,6 +5,7 @@ setlocal
 set FFTW_MSVS="Visual Studio 15 2017"
 rem set FFTW_MSVS="NMake Makefiles"
 set PFMS=x64 Win32
+set FFTW_VER=3.3.10
 
 rem "Useful" mean "double"
 
@@ -28,8 +29,8 @@ set WD=build-%1-%2-static
 echo cmake %WD%
 mkdir %WD% && cd %WD%
 if errorlevel 1 exit /b 1
-if %1 == GEN (set ARC="") else set ARC="-DENABLE_%1=ON"
-set VCMAKE=cmake -G %FFTW_MSVS% -A %2 -DBUILD_SHARED_LIBS=OFF -DENABLE_THREADS=ON -DENABLE_RATCAT=ON %ARC% ..
+if %1 == GEN (set ARC="-DEMPTY=ON") else set ARC=-DENABLE_%1=ON
+set VCMAKE=cmake -G %FFTW_MSVS% -A %2 -DFFTW_VERSION=%FFTW_VER% -DBUILD_SHARED_LIBS=OFF -DENABLE_THREADS=ON -DENABLE_RATCAT=ON %ARC% ..
 echo %VCMAKE%
 %VCMAKE%
 if errorlevel 1 cd .. ; exit /b 1
